@@ -1,0 +1,22 @@
+{
+  "name": "gitops-demo-api",
+  "version": "1.0.0",
+  "description": "Small Express API for a GitOps CI/CD assignment",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "jest --runInBand",
+    "test:ci": "jest --ci --coverage --runInBand"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.1.1"
+  }
+}
