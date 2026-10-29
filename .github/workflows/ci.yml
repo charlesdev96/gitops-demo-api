@@ -1,43 +1,56 @@
-name: Backend CI and Image Publish
+
+name: Backend CI/CD
 
 on:
   push:
+    branches:
+      - main
   pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
-  packages: write
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: ghcr.io/charlesdev96/gitops-demo-api
 
 jobs:
   test:
-    name: Test application
+    name: Lint and test backend
     runs-on: ubuntu-latest
+
     steps:
-      - name: Check out source
+      - name: Checkout backend repository
         uses: actions/checkout@v4
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Run tests
-        run: npm run test:ci
+        run: npm test -- --runInBand
 
-  build-and-push:
-    name: Build and publish Docker image
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  publish-and-update-staging:
+    name: Publish Docker image and update staging
     runs-on: ubuntu-latest
+    needs: test
+
+    # Publish and update GitOps only after a push to main.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+      packages: write
+
     steps:
-      - name: Check out source
+      - name: Checkout backend repository
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
@@ -46,20 +59,50 @@ jobs:
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Normalize image name
-        id: image
-        shell: bash
-        run: echo "name=$(echo '${{ env.IMAGE_NAME }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
-
-      - name: Build and push image
+      - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:latest
+            ghcr.io/charlesdev96/gitops-demo-api:${{ github.sha }}
+            ghcr.io/charlesdev96/gitops-demo-api:latest
+
+      - name: Checkout GitOps repository
+        uses: actions/checkout@v4
+        with:
+          repository: charlesdev96/platform-argo-cd-assignment
+          ref: main
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops-config
+
+      - name: Update staging image tag
+        working-directory: gitops-config
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          echo "Updating staging to image tag: ${IMAGE_TAG}"
+
+          sed -i \
+            "s/^    newTag: .*/    newTag: ${IMAGE_TAG}/" \
+            overlays/staging/kustomization.yaml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add overlays/staging/kustomization.yaml
+
+          if git diff --cached --quiet; then
+            echo "No GitOps changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Deploy staging image ${IMAGE_TAG}"
+          git push origin main
