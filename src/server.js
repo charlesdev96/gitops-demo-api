@@ -8,7 +8,9 @@ app.get("/health", (_req, res) => {
 });
 
 app.get("/", (_req, res) => {
-	res.status(200).json({ message: "Hello, assignement for charles ogonnaya" });
+	res.status(200).json({
+		message: "Hello, assignement for charles ogonnaya. Congratulations",
+	});
 });
 
 // Keep the app importable by tests without starting a listener.
